@@ -1,0 +1,58 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+/* Custom scrollbars for directory panels */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #090d16;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #10b981;
+}
+
+/* Fielding player token jiggle animations on click and point (hover) */
+@keyframes svg-jiggle-hover-kf {
+  0% { transform: scale(1.08) translate(0, 0); }
+  25% { transform: scale(1.1) translate(-1.2px, 0.8px) rotate(-1deg); }
+  50% { transform: scale(1.1) translate(1px, -1px) rotate(1deg); }
+  75% { transform: scale(1.08) translate(-0.8px, -0.8px) rotate(-0.5deg); }
+  100% { transform: scale(1.08) translate(0, 0); }
+}
+
+@keyframes svg-jiggle-click-kf {
+  0% { transform: scale(1); }
+  15% { transform: scale(0.85) rotate(-3deg); }
+  30% { transform: scale(1.22) rotate(4deg) translate(-2px, -1px); }
+  45% { transform: scale(1.15) rotate(-4deg) translate(2px, 1.5px); }
+  60% { transform: scale(1.2) rotate(2deg) translate(-1px, 0.8px); }
+  75% { transform: scale(1.12) rotate(-2deg) translate(1px, -0.5px); }
+  90% { transform: scale(1.08) rotate(0.5deg); }
+  100% { transform: scale(1); }
+}
+
+.svg-jiggle {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.svg-jiggle:hover {
+  animation: svg-jiggle-hover-kf 0.35s ease-in-out infinite;
+}
+
+.svg-jiggle-active {
+  animation: svg-jiggle-click-kf 0.55s ease-out !important;
+}
+

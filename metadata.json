@@ -1,0 +1,6 @@
+{
+  "name": "Cricket Field Tactician",
+  "description": "Interactive cricket fielding tactics designer and strategy board. Setup alignments, track coordinates, resolve positional names, draw tactics, consult Gemini AI Coach advice, and export coaching PDFs.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
