@@ -127,6 +127,7 @@ export default function CricketField({
             x: Math.round(targetX),
             y: Math.round(targetY),
             positionName: posName,
+            defaultName: posName,
           };
         }
         return f;

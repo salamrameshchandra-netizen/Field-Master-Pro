@@ -84,7 +84,7 @@ export default function SidebarControls({
         x: relativeX,
         y: relativeY,
         role: f.role,
-        defaultName: f.defaultName,
+        defaultName: posName,
         customName: existing?.customName || "",
         jerseyNumber: existing?.jerseyNumber,
         positionName: posName,

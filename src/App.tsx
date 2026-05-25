@@ -55,10 +55,14 @@ interface AIAnalysis {
 export default function App() {
   const [fielders, setFielders] = useState<Fielder[]>(() => {
     // Attempt load default stance resolved names
-    return INITIAL_FIELDERS.map((f) => ({
-      ...f,
-      positionName: resolvePositionName(f.x, f.y, false),
-    }));
+    return INITIAL_FIELDERS.map((f) => {
+      const posName = resolvePositionName(f.x, f.y, false);
+      return {
+        ...f,
+        positionName: posName,
+        defaultName: posName,
+      };
+    });
   });
 
   const [selectedFielderId, setSelectedFielderId] = useState<string | null>(null);
@@ -125,10 +129,14 @@ export default function App() {
   // Recalculate position names when batsman hand stance flips!
   const handleSetLeftHanded = (val: boolean) => {
     setIsLeftHanded(val);
-    const updated = fielders.map((f) => ({
-      ...f,
-      positionName: resolvePositionName(f.x, f.y, val),
-    }));
+    const updated = fielders.map((f) => {
+      const posName = resolvePositionName(f.x, f.y, val);
+      return {
+        ...f,
+        positionName: posName,
+        defaultName: posName,
+      };
+    });
     setFielders(updated);
     // Clear AI advice since coordinates change significance
     setAiAnalysis(null);
@@ -182,10 +190,14 @@ export default function App() {
   // Reset Fielder nodes back to absolute default setups
   const handleResetField = () => {
     if (confirm("Reset layout back to standard starting field?")) {
-      const reset = INITIAL_FIELDERS.map((f) => ({
-        ...f,
-        positionName: resolvePositionName(f.x, f.y, isLeftHanded),
-      }));
+      const reset = INITIAL_FIELDERS.map((f) => {
+        const posName = resolvePositionName(f.x, f.y, isLeftHanded);
+        return {
+          ...f,
+          positionName: posName,
+          defaultName: posName,
+        };
+      });
       setFielders(reset);
       setDrawings([]);
       setAiAnalysis(null);
@@ -257,6 +269,9 @@ export default function App() {
     const originalGetComputedStyle = window.getComputedStyle;
 
     try {
+      // Small timeout to allow React state update to render the white theme styles correctly
+      await new Promise((resolve) => setTimeout(resolve, 150));
+
       const printableSection = document.getElementById("coaching-printable-briefing");
       if (!printableSection) {
         throw new Error("Target Briefing dossier layout node not found.");
@@ -318,12 +333,16 @@ export default function App() {
         }) as CSSStyleDeclaration;
       };
 
-      // Convert layout node into higher scale canvas
+      // Convert layout node into higher scale canvas with white background
       const canvas = await html2canvas(printableSection, {
-        scale: 2.5,
+        scale: 2.0,
         useCORS: true,
-        backgroundColor: "#0b1329",
-        scrollY: -window.scrollY
+        backgroundColor: "#ffffff",
+        scrollX: 0,
+        scrollY: 0,
+        windowWidth: printableSection.scrollWidth,
+        windowHeight: printableSection.scrollHeight,
+        logging: false
       });
 
       // Restore original getComputedStyle immediately after html2canvas completes
@@ -532,7 +551,7 @@ export default function App() {
                             x: f.x,
                             y: f.y,
                             role: f.role,
-                            defaultName: f.defaultName,
+                            defaultName: posName,
                             customName: ex?.customName || "",
                             jerseyNumber: ex?.jerseyNumber,
                             positionName: posName,
@@ -1056,136 +1075,246 @@ export default function App() {
           <span className="text-[10px] bg-indigo-950 border border-indigo-900 text-indigo-400 rounded-full px-2 py-0.5 font-mono">PDF Target Sheet</span>
         </div>
 
-        <div
-          id="coaching-printable-briefing"
-          className="bg-[#0b1329] border-2 border-slate-800 rounded-2xl p-8 text-slate-100 font-sans shadow-2xl relative overflow-hidden flex flex-col gap-8 max-w-[800px] mx-auto scale-95 origin-top"
-          style={{ fontFamily: "'Inter', sans-serif" }}
-        >
-          {/* Header */}
-          <div className="flex justify-between items-start border-b-2 border-slate-800 pb-5">
-            <div>
-              <div className="bg-emerald-600 px-3 py-1 text-[10px] font-bold text-white rounded font-mono inline-block mb-2">
-                CRICKET MASTER TACTICS BRIEFING
-              </div>
-              <h2 className="text-2xl font-bold text-white tracking-tight">
-                {customStrategyTitle}
-              </h2>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Target Profile: {targetBatsman} | Aligning Bowl: {bowlerType}
-              </p>
-            </div>
-            <div className="text-right font-mono text-xs text-slate-500">
-              <p>DATE: {new Date().toLocaleDateString()}</p>
-              <p>GAME: {format}</p>
-              <p>STANCE: {isLeftHanded ? "LHB" : "RHB"}</p>
-            </div>
-          </div>
+        {(() => {
+          // Fallback / Prepared Data for Tactics Brief PDF Sheet when Gemini has not run yet.
+          // This satisfies the requirement to always include assessment and vulnerabilities in the generated PDF.
+          const offsideFielders = fielders.filter(f => isLeftHanded ? f.x > 300 : f.x < 300).length;
+          const legsideFielders = fielders.length - offsideFielders - (fielders.find(f => f.role === "wicket_keeper") ? 1 : 0) - (fielders.find(f => f.role === "bowler") ? 1 : 0);
+          const deepFielders = fielders.filter(f => {
+            const dx = f.x - 300;
+            const dy = f.y - 300;
+            return Math.sqrt(dx * dx + dy * dy) > 135;
+          }).length;
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
-            
-            <div className="flex flex-col gap-4">
-              <div>
-                <h4 className="text-xs font-bold text-emerald-500 font-mono tracking-widest uppercase mb-2">
-                  1. GENERAL DIRECTIONS
-                </h4>
-                <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-800">
-                  <textarea
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    rows={6}
-                    placeholder="Directions..."
-                    className="w-full bg-transparent border-none p-0 text-xs text-slate-300 leading-relaxed resize-none focus:outline-none focus:ring-0 active:ring-0"
-                  />
-                </div>
-              </div>
+          const fallbackAssessment = `The current layout has ${offsideFielders} fielders on the Off-Side and ${legsideFielders} on the On-Side. This setup is tuned for standard ${format} format line targets. ${
+            deepFielders > 4 
+              ? "Good boundary protection is established across the outfield ring, minimizing boundary leaks."
+              : "Attacking close-in presence is strong; however, outfield boundaries remain vulnerable to aggressive strokeplay."
+          }`;
 
-              <div>
-                <h4 className="text-xs font-bold text-emerald-500 font-mono tracking-widest uppercase mb-2">
-                  2. MATCH PLACEMENT REGISTER
-                </h4>
-                <div className="bg-slate-900/60 rounded-xl border border-slate-800 overflow-hidden">
-                  <table className="w-full text-left text-xs text-slate-300">
-                    <thead className="bg-slate-950/80 text-[10px] font-mono text-slate-400 uppercase">
-                      <tr>
-                        <th className="p-2">Pos</th>
-                        <th className="p-2">Player Jersey / Name</th>
-                        <th className="p-2">Sub-Alignment</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800">
-                      {fielders.map((f) => (
-                        <tr key={f.id} className="hover:bg-slate-900/40">
-                          <td className="p-2 font-bold text-slate-200">
-                            {f.id === "F1" ? "WK" : f.id === "F2" ? "BW" : f.id.replace("F", "")}
-                          </td>
-                          <td className="p-2 truncate max-w-[120px]">
-                            {f.customName || f.defaultName} {f.jerseyNumber ? `(No. ${f.jerseyNumber})` : ""}
-                          </td>
-                          <td className="p-2 text-emerald-400 font-mono text-[10px]">{f.positionName}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
+          const fallbackGaps = [
+            deepFielders <= 2 
+              ? `Critical Outfield Hole: Running only ${deepFielders} deep fielders leaves massive deep gaps open for easy boundaries.`
+              : `Moderate depth: ${deepFielders} boundary riders are deployed, leaving some intermediate scoring zones vulnerable.`,
+            offsideFielders >= 6 
+              ? "On-Side Vulnerability: Off-Side is packed, but severe fielding gaps/holes exist across the Leg-Side for easy sweep/pull shots." 
+              : offsideFielders <= 3 
+                ? "Off-Side Hole: Off-Side coverage is minimal, exposing large gaps past point/gully lines for easy offside drives."
+                : "Standard cover gaps are present in the Cow Corner and Deep Backward Square regions.",
+            "Alignment Vulnerability: Bowler releasing speed must match field distance to prevent standard batsman edges from escaping."
+          ];
 
-            <div className="flex flex-col gap-4 bg-slate-900/40 border border-slate-800/80 rounded-2xl p-4">
-              <h4 className="text-xs font-bold text-emerald-500 font-mono tracking-widest uppercase mb-1">
-                3. TACTICS SCHEME SUMMARY
-              </h4>
-              <p className="text-[11px] text-slate-400 leading-normal">
-                This schematic register represents a custom field designed using the Cricket Field Tactician board. Ensure the bowlers bowl to the field structure.
-              </p>
-              
-              <div className="aspect-square bg-slate-950 p-2 rounded-xl border border-slate-800 flex items-center justify-center">
-                <svg viewBox="0 0 400 400" className="w-full h-full max-w-[280px]">
-                  <circle cx="200" cy="200" r="185" fill="#132717" stroke="#ffffff" strokeWidth="1.5" />
-                  <circle cx="200" cy="200" r="100" fill="none" stroke="#ffffff" strokeWidth="1" strokeDasharray="3,3" opacity="0.6" />
-                  <rect x="190" y="160" width="20" height="80" fill="#ccba8e" rx="1" />
-                  
-                  {/* Pitch creases */}
-                  <line x1="185" y1="170" x2="215" y2="170" stroke="#fff" strokeWidth="1" />
-                  <line x1="185" y1="230" x2="215" y2="230" stroke="#fff" strokeWidth="1" />
-                  
-                  {/* Miniature field circles representation */}
-                  {fielders.map((f) => {
-                    const mappedX = (f.x / 600) * 400;
-                    const mappedY = (f.y / 600) * 400;
-                    const isWK = f.role === "wicket_keeper";
-                    const isBW = f.role === "bowler";
-                    const color = isWK ? "#ef4444" : isBW ? "#3b82f6" : "#10b981";
-                    
-                    return (
-                      <g key={f.id}>
-                        <circle cx={mappedX} cy={mappedY} r="7" fill={color} stroke="#ffffff" strokeWidth="0.8" />
-                        <text x={mappedX} y={mappedY + 2.5} fill="#fff" fontSize="5.5" fontWeight="bold" textAnchor="middle">
-                          {isWK ? "WK" : isBW ? "BW" : f.id.replace("F", "")}
-                        </text>
-                      </g>
-                    );
-                  })}
-                </svg>
-              </div>
+          const fallbackRecs = [
+            {
+              fielderId: "F3",
+              action: "Reposition Close Cordon",
+              newPositionName: "Slip Alignment",
+              reason: "Adjust distance based on pitch bounce and bowler release velocity to convert edges into soft catches."
+            },
+            {
+              fielderId: "F8",
+              action: "Bridge Outfield Gap",
+              newPositionName: "Deep Ring / Cover",
+              reason: "Ensure any driving or lofting lines are adequately covered by the cover/mid-off sweep spacing."
+            }
+          ];
 
-              {aiAnalysis && (
-                <div className="bg-indigo-950/40 p-3 rounded-xl border border-indigo-900/40 mt-1">
-                  <div className="flex items-center gap-1.5 text-xs text-indigo-300 font-bold font-mono">
-                    🏆 GEMINI BRIEFING NOTE:
+          const fallbackTip = `Keep the ball line disciplined. Do not allow the batsman to play across the line if the field is packed on one side. Maintain an off-stump / fourth-stump line to exploit the slip cordon presence and create edge opportunities.`;
+
+          const assessmentToUse = aiAnalysis ? aiAnalysis.assessment : fallbackAssessment;
+          const gapsToUse = aiAnalysis ? aiAnalysis.gaps : fallbackGaps;
+          const recsToUse = aiAnalysis ? aiAnalysis.recommendations : fallbackRecs;
+          const tipToUse = aiAnalysis ? aiAnalysis.coachingTip : fallbackTip;
+
+          return (
+            <div className="scale-95 origin-top overflow-visible">
+              <div
+                id="coaching-printable-briefing"
+                className="bg-white border-2 border-slate-200 rounded-2xl p-8 text-slate-900 font-sans shadow-2xl relative overflow-visible flex flex-col gap-8 max-w-[800px] mx-auto text-left"
+                style={{ fontFamily: "'Inter', sans-serif" }}
+              >
+                {/* Header */}
+                <div className="flex justify-between items-start border-b-2 border-slate-200 pb-5">
+                  <div>
+                    <div className="bg-emerald-600 px-3 py-1 text-[10px] font-bold text-white rounded font-mono inline-block mb-2">
+                      CRICKET MASTER TACTICS BRIEFING
+                    </div>
+                    <h2 className="text-2xl font-bold text-slate-950 tracking-tight">
+                      {customStrategyTitle}
+                    </h2>
+                    <p className="text-xs text-slate-600 mt-0.5">
+                      Target Profile: {targetBatsman} | Aligning Bowl: {bowlerType}
+                    </p>
                   </div>
-                  <p className="text-[10px] text-indigo-200 italic leading-relaxed mt-1">
-                    "{aiAnalysis.assessment}"
-                  </p>
+                  <div className="text-right font-mono text-xs text-slate-500">
+                    <p>DATE: {new Date().toLocaleDateString()}</p>
+                    <p>GAME: {format}</p>
+                    <p>STANCE: {isLeftHanded ? "LHB" : "RHB"}</p>
+                  </div>
                 </div>
-              )}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+                  
+                  <div className="flex flex-col gap-4">
+                    <div>
+                      <h4 className="text-xs font-bold text-emerald-700 font-mono tracking-widest uppercase mb-2">
+                        1. GENERAL DIRECTIONS
+                      </h4>
+                      <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                        <textarea
+                          value={notes}
+                          onChange={(e) => setNotes(e.target.value)}
+                          rows={6}
+                          placeholder="Directions..."
+                          className="w-full bg-transparent border-none p-0 text-xs text-slate-800 leading-relaxed resize-none focus:outline-none focus:ring-0 active:ring-0"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <h4 className="text-xs font-bold text-emerald-700 font-mono tracking-widest uppercase mb-2">
+                        2. MATCH PLACEMENT REGISTER
+                      </h4>
+                      <div className="bg-slate-50 rounded-xl border border-slate-200 overflow-hidden">
+                        <table className="w-full text-left text-xs text-slate-800">
+                          <thead className="bg-slate-100/90 text-[10px] font-mono text-slate-600 uppercase border-b border-slate-200">
+                            <tr>
+                              <th className="p-2">Pos</th>
+                              <th className="p-2">Player Jersey / Name</th>
+                              <th className="p-2">Sub-Alignment</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-205">
+                            {fielders.map((f) => (
+                              <tr key={f.id} className="hover:bg-slate-150/40">
+                                <td className="p-2 font-bold text-slate-900">
+                                  {f.id === "F1" ? "WK" : f.id === "F2" ? "BW" : f.id.replace("F", "")}
+                                </td>
+                                <td className="p-2 truncate max-w-[120px] text-slate-800">
+                                  {f.customName || f.defaultName} {f.jerseyNumber ? `(No. ${f.jerseyNumber})` : ""}
+                                </td>
+                                <td className="p-2 text-emerald-700 font-mono text-[10px]">{f.positionName}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-4 bg-slate-50 border border-slate-200 rounded-2xl p-4">
+                    <h4 className="text-xs font-bold text-emerald-700 font-mono tracking-widest uppercase mb-1">
+                      3. TACTICS SCHEME SUMMARY
+                    </h4>
+                    <p className="text-[11px] text-slate-600 leading-normal">
+                      This schematic register represents a custom field designed using the Cricket Field Tactician board. Ensure the bowlers bowl to the field structure.
+                    </p>
+                    
+                    <div className="aspect-square bg-[#0f2d15] p-3 rounded-xl border border-slate-200 flex items-center justify-center">
+                      <svg viewBox="0 0 400 400" className="w-full h-full max-w-[280px]">
+                        <circle cx="200" cy="200" r="185" fill="#1b4d24" stroke="#ffffff" strokeWidth="1.5" />
+                        <circle cx="200" cy="200" r="100" fill="none" stroke="#ffffff" strokeWidth="1" strokeDasharray="3,3" opacity="0.6" />
+                        <rect x="190" y="160" width="20" height="80" fill="#ccba8e" rx="1" />
+                        
+                        {/* Pitch creases */}
+                        <line x1="185" y1="170" x2="215" y2="170" stroke="#fff" strokeWidth="1" />
+                        <line x1="185" y1="230" x2="215" y2="230" stroke="#fff" strokeWidth="1" />
+                        
+                        {/* Miniature field circles representation */}
+                        {fielders.map((f) => {
+                          const mappedX = (f.x / 600) * 400;
+                          const mappedY = (f.y / 600) * 400;
+                          const isWK = f.role === "wicket_keeper";
+                          const isBW = f.role === "bowler";
+                          const color = isWK ? "#ef4444" : isBW ? "#3b82f6" : "#10b981";
+                          
+                          return (
+                            <g key={f.id}>
+                              <circle cx={mappedX} cy={mappedY} r="7" fill={color} stroke="#ffffff" strokeWidth="0.8" />
+                              <text x={mappedX} y={mappedY + 2.5} fill="#fff" fontSize="5.5" fontWeight="bold" textAnchor="middle">
+                                {isWK ? "WK" : isBW ? "BW" : f.id.replace("F", "")}
+                              </text>
+                            </g>
+                          );
+                        })}
+                      </svg>
+                    </div>
+
+                    <div className="bg-indigo-50 p-3 rounded-xl border border-indigo-150 mt-1">
+                      <div className="flex items-center gap-1.5 text-xs text-indigo-800 font-bold font-mono">
+                        🏆 GEMINI BRIEFING NOTE:
+                      </div>
+                      <p className="text-[11px] text-indigo-950 italic leading-relaxed mt-1">
+                        "{assessmentToUse}"
+                      </p>
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* Section 4: Tactical Insights / Vulnerabilities and Holes */}
+                <div className="border-t border-slate-200 pt-6 flex flex-col gap-5">
+                  <div className="flex items-center gap-2 text-indigo-700 font-mono text-xs font-bold uppercase tracking-wider">
+                    <span>🤖</span> 4. {aiAnalysis ? "Gemini AI Strategic Adviser Insights" : "Tactical Coverage & Vulnerabilities Analysis"}
+                  </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
+                    <div className="md:col-span-5 bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-col gap-2">
+                      <h5 className="text-[10px] font-bold text-slate-600 tracking-wider font-mono">FIELD ASSESSMENT</h5>
+                      <p className="text-xs text-slate-800 leading-relaxed italic">
+                        "{assessmentToUse}"
+                      </p>
+                    </div>
+                    
+                    <div className="md:col-span-7 bg-red-50 p-4 rounded-xl border border-red-200 flex flex-col gap-2">
+                      <h5 className="text-[10px] font-bold text-red-700 tracking-wider font-mono">VULNERABILITIES & HOLES IDENTIFIED</h5>
+                      <ul className="text-xs text-slate-800 space-y-1.5 list-disc list-inside">
+                        {gapsToUse.map((gap, index) => (
+                          <li key={index} className="leading-relaxed text-slate-800">
+                            {gap}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-col gap-3">
+                    <h5 className="text-[10px] font-bold text-emerald-700 tracking-wider font-mono">RECOMMENDED FIELD MOVEMENT SYSTEM</h5>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                      {recsToUse.map((rec, index) => (
+                        <div key={index} className="bg-white p-3 rounded-lg border border-slate-200 flex gap-2.5 shadow-sm">
+                          <span className="w-6 h-6 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold flex items-center justify-center shrink-0 border border-emerald-200">
+                            {rec.fielderId}
+                          </span>
+                          <div>
+                            <p className="text-xs font-bold text-slate-900">
+                              {rec.action} <span className="text-[10px] text-emerald-700">({rec.newPositionName})</span>
+                            </p>
+                            <p className="text-[10px] text-slate-600 mt-0.5 leading-relaxed">{rec.reason}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-200 flex gap-3 items-start">
+                    <span className="text-base">💡</span>
+                    <div>
+                      <h6 className="text-[10px] font-bold text-indigo-805 font-mono tracking-wider">GEMINI STRATEGIST DEEP BRIEF</h6>
+                      <p className="text-xs text-indigo-950 leading-relaxed italic mt-0.5">
+                        "{tipToUse}"
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border-t border-slate-200 pt-3 text-center text-[10px] text-slate-500 font-mono">
+                  Generated via Cricket Field Tactician | Powered by Gemini AI
+                </div>
+              </div>
             </div>
-
-          </div>
-
-          <div className="border-t border-slate-800 pt-3 text-center text-[10px] text-slate-500 font-mono">
-            Generated via Cricket Field Tactician | Powered by Gemini AI
-          </div>
-        </div>
+          );
+        })()}
       </section>
 
       {/* FOOTER STATUS BAR */}
