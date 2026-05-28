@@ -281,32 +281,90 @@ export default function App() {
       const canvasEl = document.createElement("canvas");
       const ctx = canvasEl.getContext("2d");
       const convertColor = (val: any): any => {
-        if (typeof val === "string" && (
-          val.includes("oklch") || 
-          val.includes("oklab") || 
-          val.includes("lch") || 
-          val.includes("lab")
-        )) {
-          if (ctx) {
-            try {
-              ctx.fillStyle = val;
-              const resolved = ctx.fillStyle;
-              if (
-                resolved && 
-                !resolved.includes("oklch") && 
-                !resolved.includes("oklab") && 
-                !resolved.includes("lch") && 
-                !resolved.includes("lab")
-              ) {
-                return resolved;
-              }
-            } catch (colorErr) {
-              // ignore and fallback
+        if (typeof val !== "string") return val;
+
+        // Try standard canvas resolution first in case the browser native context supports OKLCH
+        if (ctx && (val.includes("oklch") || val.includes("oklab") || val.includes("lch") || val.includes("lab"))) {
+          try {
+            ctx.fillStyle = val;
+            const resolved = ctx.fillStyle;
+            if (
+              resolved && 
+              !resolved.includes("oklch") && 
+              !resolved.includes("oklab") && 
+              !resolved.includes("lch") && 
+              !resolved.includes("lab")
+            ) {
+              return resolved;
             }
+          } catch (colorErr) {
+            // fallback to helper
           }
-          // Safe neutral transparent fallback if canvas context fails
-          return "rgba(0, 0, 0, 0)";
         }
+
+        // Mathematical conversion fallback for OKLCH
+        // Matches format like: oklch(0.208 0.042 265.755) or oklch(0.208 0.042 265.755 / 0.5)
+        const oklchMatch = val.match(/oklch\(\s*([-\d.%]+)\s+([-\d.]+)\s+([-\d.(?:deg)]+)(?:\s*\/\s*([-\d.%]+))?\s*\)/i);
+        if (oklchMatch) {
+          try {
+            let l = parseFloat(oklchMatch[1]);
+            if (oklchMatch[1].includes("%")) l /= 100;
+            
+            const c = parseFloat(oklchMatch[2]);
+            const h = parseFloat(oklchMatch[3]);
+            
+            let alpha = 1;
+            if (oklchMatch[4]) {
+              alpha = parseFloat(oklchMatch[4]);
+              if (oklchMatch[4].includes("%")) alpha /= 100;
+            }
+            
+            // Convert Hue from degrees to radians
+            const hRad = (h * Math.PI) / 180;
+            
+            // Calculate LMS from OKLCH values
+            const numA = c * Math.cos(hRad);
+            const numB = c * Math.sin(hRad);
+            
+            const l_ = l + 0.3963377774 * numA + 0.2158037573 * numB;
+            const m_ = l - 0.1055613458 * numA - 0.0638541728 * numB;
+            const s_ = l - 0.0894841775 * numA - 1.2914855480 * numB;
+            
+            const l_crit = l_ * l_ * l_;
+            const m_crit = m_ * m_ * m_;
+            const s_crit = s_ * s_ * s_;
+            
+            // Convert LMS to RGB
+            const rL = +4.0767416621 * l_crit - 3.3077115913 * m_crit + 0.2309699292 * s_crit;
+            const gL = -1.2684380046 * l_crit + 2.6097574011 * m_crit - 0.3413193965 * s_crit;
+            const bL = -0.0041960863 * l_crit - 0.7034186147 * m_crit + 1.7076147010 * s_crit;
+            
+            // Gamma correction for sRGB standard color space
+            const f = (valNum: number) => {
+              const clamped = Math.max(0, Math.min(1, valNum));
+              return clamped <= 0.0031308
+                ? 12.92 * clamped
+                : 1.055 * Math.pow(clamped, 1 / 2.4) - 0.055;
+            };
+            
+            const r = Math.round(f(rL) * 255);
+            const g = Math.round(f(gL) * 255);
+            const b = Math.round(f(bL) * 255);
+            
+            if (alpha < 1) {
+              return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+            }
+            return `rgb(${r}, ${g}, ${b})`;
+          } catch (e) {
+            // fallback
+          }
+        }
+
+        // Backup safe fallback to avoid transparent elements
+        if (val.includes("oklch") || val.includes("oklab") || val.includes("lch") || val.includes("lab")) {
+          return "#0f172a"; // Default dark grey text color
+        }
+
         return val;
       };
 
@@ -402,6 +460,68 @@ export default function App() {
   }).length;
   const boundaryRiskText = outfieldCount <= 2 ? "High" : outfieldCount <= 4 ? "Medium" : "Low";
   const boundaryRiskColor = outfieldCount <= 2 ? "text-red-400" : outfieldCount <= 4 ? "text-amber-400" : "text-emerald-400";
+
+  // Dynamic Real-Time Tactical Calculations for the Coach Tactics Briefing in PDF
+  const offsideFieldersCount = fielders.filter(f => isLeftHanded ? f.x > 300 : f.x < 300).length;
+  const hasWK = fielders.some(f => f.role === "wicket_keeper");
+  const hasBW = fielders.some(f => f.role === "bowler");
+  const legsideFieldersCount = fielders.length - offsideFieldersCount - (hasWK ? 1 : 0) - (hasBW ? 1 : 0);
+  
+  const deepFieldersCount = fielders.filter(f => {
+    const dx = f.x - 300;
+    const dy = f.y - 300;
+    return Math.sqrt(dx * dx + dy * dy) > 135;
+  }).length;
+
+  const closeSlippedCount = fielders.filter(f => {
+    const isSlip = f.positionName.toLowerCase().includes("slip") || f.defaultName.toLowerCase().includes("slip");
+    const dx = f.x - 300;
+    const dy = f.y - 485; // keeper ends
+    return isSlip || (Math.sqrt(dx * dx + dy * dy) < 80 && f.role === "fielder");
+  }).length;
+
+  const assessmentToUse = `Tactical setup configured with ${offsideFieldersCount} off-side and ${legsideFieldersCount} leg-side fielders. Target bowler delivery mode is set to ${bowlerType} playing against a ${isLeftHanded ? "Left-Handed" : "Right-Handed"} batsman. ${
+    deepFieldersCount > 4 
+      ? `A defensive boundary ring (${deepFieldersCount} deep fielders) is in place, capping risk of big-hitting strikes.` 
+      : deepFieldersCount <= 2 
+        ? `Aggressive close catch design deployed with only ${deepFieldersCount} boundary riders. Exceptional key-space pressure creation.`
+        : `Balanced intermediate coverage with ${deepFieldersCount} outfield sweep protectors.`
+  }`;
+
+  const gapsToUse = [
+    deepFieldersCount === 0 
+      ? "Critical Boundary Hole: Zero boundary protectors. Any lifted shot over the infield is a guaranteed boundary."
+      : deepFieldersCount <= 2 
+        ? `Outfield Vulnerability: Running only ${deepFieldersCount} deep fielders leaves massive perimeter gaps on both sides.`
+        : `Perimeter Spacing: ${deepFieldersCount} deep riders are deployed, requiring precise bowling lines to offset uncovered angles.`,
+    offsideFieldersCount >= 6 
+      ? "Legside Gap: Heavy off-side packing creates severe gap coverage issues on the On-Side, risking easy leg-side sweeps/pulls."
+      : outfieldCount <= 3 
+        ? "Offside Gap: Minimal off-side numbers. Highly vulnerable to late-cuts, drives, and cover punches."
+        : "Balanced Midrings: Average mid-off and mid-on coverage. Standard boundary channels exist in wide-mid-wicket and backward-point.",
+    closeSlippedCount === 0 
+      ? "Slip Cordon Deficit: No slips in position to convert thick edges. Perfect for easy batsman survival; edges will fly safely to third man."
+      : `Cordon Pressure: ${closeSlippedCount} slip(s)/gully present to convert thick edges. Requires consistent off-stump bowling lines.`
+  ];
+
+  const recsToUse = [
+    {
+      fielderId: "F3",
+      action: closeSlippedCount === 0 ? "Deploy Slip Cordon" : "Tighten Slip Spacing",
+      newPositionName: "Slip Alignment",
+      reason: "Ensure bowler maintains corridor line targets to maximize catch opportunities in the slip zone."
+    },
+    {
+      fielderId: "F8",
+      action: deepFieldersCount < 4 ? "Defensive Outfield Shift" : "Infield Ring Tightening",
+      newPositionName: deepFieldersCount < 4 ? "Deep Cover / Mid-Wicket" : "Extra Cover / Mid-Off",
+      reason: deepFieldersCount < 4 
+        ? "Provides much needed safety boundaries for lofted drives." 
+        : "Apply intense pressure for dot balls inside the 30-yard circle is recommended."
+    }
+  ];
+
+  const tipToUse = `Ensure bowler line matches field bias. If running an off-side heavy field (${offsideFieldersCount} fielders), bowling must target the 5th stump line to force batsman to play through the packed off-side. Alternatively, keep lines tight on middle-and-leg stump if using a packed leg-side ring. Avoid straying into empty zones under any circumstances.`;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
@@ -951,123 +1071,6 @@ export default function App() {
 
       </div>
 
-      {/* COOP AI BRAIN COACH ADVICE ADAPTER */}
-      <section className="bg-slate-950 max-w-7xl w-full mx-auto px-4 py-8">
-        <div className="bg-gradient-to-tr from-slate-900 to-indigo-950 border border-slate-800/80 rounded-2xl p-6 shadow-xl relative overflow-hidden">
-          
-          <div className="absolute right-0 bottom-0 opacity-5 pointer-events-none transform translate-y-12 translate-x-12">
-            <Cpu className="w-80 h-80 text-white" />
-          </div>
-
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-indigo-950/60 pb-5 mb-5">
-            <div>
-              <h2 className="text-base font-bold text-white flex items-center gap-2">
-                <span className="w-7 h-7 rounded-lg bg-indigo-900/60 text-indigo-400 border border-indigo-800/60 flex items-center justify-center text-xs">🧠</span>
-                Gemini Tactics Strategist Advice
-              </h2>
-              <p className="text-xs text-slate-400 mt-1 font-sans">
-                Trigger our server-side evaluator to scan player coordinates, map defensive/offensive spaces, and suggest placements.
-              </p>
-            </div>
-
-            <button
-              onClick={handleConsultAICoach}
-              disabled={isAnalyzing}
-              id="consult-ai-btn"
-              className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 transition-all text-white text-xs font-bold px-5 py-2.5 rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-indigo-900/40 shrink-0"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-              {isAnalyzing ? "AI Planning..." : "Analyze Field Spacing"}
-            </button>
-          </div>
-
-          {/* AI COACH FEEDBACK SCREEN */}
-          {isAnalyzing && (
-            <div className="py-12 flex flex-col items-center justify-center text-center animate-pulse gap-3">
-              <div className="w-8 h-8 border-3 border-indigo-500 border-t-transparent rounded-full animate-spin mb-2" />
-              <p className="text-indigo-400 font-mono text-xs">{loadingStep}</p>
-              <p className="text-[10px] text-slate-500">Applying professional cricket physics logic...</p>
-            </div>
-          )}
-
-          {aiError && (
-            <div className="bg-red-950/30 border border-red-500/20 text-red-300 p-4 rounded-xl flex flex-col gap-2">
-              <span className="text-xs font-bold flex items-center gap-1.5">⚠️ Tactical Analyser Obstruction</span>
-              <p className="text-xs">{aiError}</p>
-            </div>
-          )}
-
-          {aiAnalysis ? (
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-6 animate-fadeIn">
-              
-              <div className="md:col-span-5 flex flex-col gap-4">
-                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
-                  <h4 className="text-[10px] font-bold text-indigo-400 font-mono uppercase mb-2">FIELD ASSESSMENT</h4>
-                  <p className="text-xs text-slate-300 leading-relaxed italic">
-                    "{aiAnalysis.assessment}"
-                  </p>
-                </div>
-
-                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex-1">
-                  <h4 className="text-[10px] font-bold text-red-400 font-mono uppercase mb-3">VULNERABILITIES & HOLES</h4>
-                  <ul className="flex flex-col gap-2.5">
-                    {aiAnalysis.gaps.map((gap, idx) => (
-                      <li key={idx} className="text-xs text-slate-300 flex gap-2 items-start leading-relaxed">
-                        <span className="text-red-500 shrink-0">⚠️</span>
-                        <span>{gap}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-
-              <div className="md:col-span-7 flex flex-col gap-4">
-                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
-                  <h4 className="text-[10px] font-bold text-emerald-400 font-mono uppercase mb-3">RECOMMENDED PLACEMENT ADJUSTMENTS</h4>
-                  <div className="flex flex-col gap-2.5">
-                    {aiAnalysis.recommendations.map((rec, idx) => (
-                      <div key={idx} className="bg-slate-900 p-3 rounded-lg border border-slate-800 flex gap-3">
-                        <span className="w-7 h-7 rounded bg-emerald-950 border border-emerald-900 text-emerald-400 text-xs font-bold flex items-center justify-center shrink-0">
-                          {rec.fielderId}
-                        </span>
-                        <div>
-                          <p className="text-xs font-bold text-white mb-0.5">
-                            {rec.action} <span className="text-[10px] text-emerald-400">({rec.newPositionName})</span>
-                          </p>
-                          <p className="text-[11px] text-slate-400 leading-normal">{rec.reason}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="bg-indigo-950/30 p-4 rounded-xl border border-indigo-900/30 flex gap-3 items-start">
-                  <span className="text-lg">🏆</span>
-                  <div>
-                    <h5 className="text-[10px] font-bold text-indigo-300 font-mono">INSIDER COACHING BRIEF</h5>
-                    <p className="text-xs text-indigo-200 mt-1 leading-relaxed italic">
-                      "{aiAnalysis.coachingTip}"
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-            </div>
-          ) : (
-            !isAnalyzing && !aiError && (
-              <div className="bg-slate-950/40 border border-slate-800 border-dashed rounded-xl p-8 text-center flex flex-col items-center justify-center gap-3">
-                <Clock className="w-8 h-8 text-slate-600" />
-                <h4 className="text-xs font-semibold text-slate-400">No tactical report requested yet.</h4>
-                <p className="text-[11px] text-slate-500 max-w-sm">
-                   Configure the player positions and click "Analyze Field Spacing" above to request a professional breakdown.
-                </p>
-              </div>
-            )
-          )}
-
-        </div>
-      </section>
-
       {/* PDF DOSSIER SHEET SECTION (For crisp print rendering) */}
       <section className="bg-slate-950 px-4 pb-20 max-w-7xl w-full mx-auto">
         <div className="flex justify-between items-center mb-3">
@@ -1075,64 +1078,12 @@ export default function App() {
           <span className="text-[10px] bg-indigo-950 border border-indigo-900 text-indigo-400 rounded-full px-2 py-0.5 font-mono">PDF Target Sheet</span>
         </div>
 
-        {(() => {
-          // Fallback / Prepared Data for Tactics Brief PDF Sheet when Gemini has not run yet.
-          // This satisfies the requirement to always include assessment and vulnerabilities in the generated PDF.
-          const offsideFielders = fielders.filter(f => isLeftHanded ? f.x > 300 : f.x < 300).length;
-          const legsideFielders = fielders.length - offsideFielders - (fielders.find(f => f.role === "wicket_keeper") ? 1 : 0) - (fielders.find(f => f.role === "bowler") ? 1 : 0);
-          const deepFielders = fielders.filter(f => {
-            const dx = f.x - 300;
-            const dy = f.y - 300;
-            return Math.sqrt(dx * dx + dy * dy) > 135;
-          }).length;
-
-          const fallbackAssessment = `The current layout has ${offsideFielders} fielders on the Off-Side and ${legsideFielders} on the On-Side. This setup is tuned for standard ${format} format line targets. ${
-            deepFielders > 4 
-              ? "Good boundary protection is established across the outfield ring, minimizing boundary leaks."
-              : "Attacking close-in presence is strong; however, outfield boundaries remain vulnerable to aggressive strokeplay."
-          }`;
-
-          const fallbackGaps = [
-            deepFielders <= 2 
-              ? `Critical Outfield Hole: Running only ${deepFielders} deep fielders leaves massive deep gaps open for easy boundaries.`
-              : `Moderate depth: ${deepFielders} boundary riders are deployed, leaving some intermediate scoring zones vulnerable.`,
-            offsideFielders >= 6 
-              ? "On-Side Vulnerability: Off-Side is packed, but severe fielding gaps/holes exist across the Leg-Side for easy sweep/pull shots." 
-              : offsideFielders <= 3 
-                ? "Off-Side Hole: Off-Side coverage is minimal, exposing large gaps past point/gully lines for easy offside drives."
-                : "Standard cover gaps are present in the Cow Corner and Deep Backward Square regions.",
-            "Alignment Vulnerability: Bowler releasing speed must match field distance to prevent standard batsman edges from escaping."
-          ];
-
-          const fallbackRecs = [
-            {
-              fielderId: "F3",
-              action: "Reposition Close Cordon",
-              newPositionName: "Slip Alignment",
-              reason: "Adjust distance based on pitch bounce and bowler release velocity to convert edges into soft catches."
-            },
-            {
-              fielderId: "F8",
-              action: "Bridge Outfield Gap",
-              newPositionName: "Deep Ring / Cover",
-              reason: "Ensure any driving or lofting lines are adequately covered by the cover/mid-off sweep spacing."
-            }
-          ];
-
-          const fallbackTip = `Keep the ball line disciplined. Do not allow the batsman to play across the line if the field is packed on one side. Maintain an off-stump / fourth-stump line to exploit the slip cordon presence and create edge opportunities.`;
-
-          const assessmentToUse = aiAnalysis ? aiAnalysis.assessment : fallbackAssessment;
-          const gapsToUse = aiAnalysis ? aiAnalysis.gaps : fallbackGaps;
-          const recsToUse = aiAnalysis ? aiAnalysis.recommendations : fallbackRecs;
-          const tipToUse = aiAnalysis ? aiAnalysis.coachingTip : fallbackTip;
-
-          return (
-            <div className="scale-95 origin-top overflow-visible">
-              <div
-                id="coaching-printable-briefing"
-                className="bg-white border-2 border-slate-200 rounded-2xl p-8 text-slate-900 font-sans shadow-2xl relative overflow-visible flex flex-col gap-8 max-w-[800px] mx-auto text-left"
-                style={{ fontFamily: "'Inter', sans-serif" }}
-              >
+        <div className="scale-95 origin-top overflow-visible">
+          <div
+            id="coaching-printable-briefing"
+            className="bg-white border-2 border-slate-200 rounded-2xl p-8 text-slate-900 font-sans shadow-2xl relative overflow-visible flex flex-col gap-8 max-w-[800px] mx-auto text-left"
+            style={{ fontFamily: "'Inter', sans-serif" }}
+          >
                 {/* Header */}
                 <div className="flex justify-between items-start border-b-2 border-slate-200 pb-5">
                   <div>
@@ -1240,34 +1191,29 @@ export default function App() {
                       </svg>
                     </div>
 
-                    <div className="bg-indigo-50 p-3 rounded-xl border border-indigo-150 mt-1">
-                      <div className="flex items-center gap-1.5 text-xs text-indigo-800 font-bold font-mono">
-                        🏆 GEMINI BRIEFING NOTE:
-                      </div>
-                      <p className="text-[11px] text-indigo-950 italic leading-relaxed mt-1">
-                        "{assessmentToUse}"
-                      </p>
-                    </div>
                   </div>
-
                 </div>
 
-                {/* Section 4: Tactical Insights / Vulnerabilities and Holes */}
+                {/* Section 4: Coach's Tactical Assessment & Spacing Analysis */}
                 <div className="border-t border-slate-200 pt-6 flex flex-col gap-5">
-                  <div className="flex items-center gap-2 text-indigo-700 font-mono text-xs font-bold uppercase tracking-wider">
-                    <span>🤖</span> 4. {aiAnalysis ? "Gemini AI Strategic Adviser Insights" : "Tactical Coverage & Vulnerabilities Analysis"}
-                  </div>
+                  <h4 className="text-xs font-bold text-emerald-700 font-mono tracking-widest uppercase flex items-center gap-1.5">
+                    📋 4. COACH'S TACTICAL ASSESSMENT & COVERAGE ANALYSIS
+                  </h4>
                   
-                  <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
-                    <div className="md:col-span-5 bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-col gap-2">
-                      <h5 className="text-[10px] font-bold text-slate-600 tracking-wider font-mono">FIELD ASSESSMENT</h5>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-col gap-2">
+                      <h5 className="text-[10px] font-bold text-slate-600 tracking-wider font-mono uppercase">
+                        FIELD PLACEMENT ASSESSMENT
+                      </h5>
                       <p className="text-xs text-slate-800 leading-relaxed italic">
                         "{assessmentToUse}"
                       </p>
                     </div>
                     
-                    <div className="md:col-span-7 bg-red-50 p-4 rounded-xl border border-red-200 flex flex-col gap-2">
-                      <h5 className="text-[10px] font-bold text-red-700 tracking-wider font-mono">VULNERABILITIES & HOLES IDENTIFIED</h5>
+                    <div className="bg-red-50/70 p-4 rounded-xl border border-red-200 flex flex-col gap-2">
+                      <h5 className="text-[10px] font-bold text-red-700 tracking-wider font-mono uppercase">
+                        SPACING VULNERABILITIES & HOLES
+                      </h5>
                       <ul className="text-xs text-slate-800 space-y-1.5 list-disc list-inside">
                         {gapsToUse.map((gap, index) => (
                           <li key={index} className="leading-relaxed text-slate-800">
@@ -1279,7 +1225,9 @@ export default function App() {
                   </div>
 
                   <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-col gap-3">
-                    <h5 className="text-[10px] font-bold text-emerald-700 tracking-wider font-mono">RECOMMENDED FIELD MOVEMENT SYSTEM</h5>
+                    <h5 className="text-[10px] font-bold text-emerald-700 tracking-wider font-mono uppercase">
+                      RECOMMENDED ALIGNMENT ADJUSTMENTS
+                    </h5>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                       {recsToUse.map((rec, index) => (
                         <div key={index} className="bg-white p-3 rounded-lg border border-slate-200 flex gap-2.5 shadow-sm">
@@ -1297,10 +1245,12 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-200 flex gap-3 items-start">
-                    <span className="text-base">💡</span>
+                  <div className="bg-indigo-50/80 p-4 rounded-xl border border-indigo-200 flex gap-3 items-start">
+                    <span className="text-base select-none">💡</span>
                     <div>
-                      <h6 className="text-[10px] font-bold text-indigo-805 font-mono tracking-wider">GEMINI STRATEGIST DEEP BRIEF</h6>
+                      <h6 className="text-[10px] font-bold text-indigo-800 font-mono tracking-wider uppercase">
+                        COACH'S SPECIAL DIRECTION NOTE
+                      </h6>
                       <p className="text-xs text-indigo-950 leading-relaxed italic mt-0.5">
                         "{tipToUse}"
                       </p>
@@ -1313,8 +1263,6 @@ export default function App() {
                 </div>
               </div>
             </div>
-          );
-        })()}
       </section>
 
       {/* FOOTER STATUS BAR */}
